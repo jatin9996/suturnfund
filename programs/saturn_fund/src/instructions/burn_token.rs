@@ -15,7 +15,7 @@ pub struct BurnToken<'info> {
     pub token_program: Program<'info, token::Token>,
     pub allocation_pda: Account<'info, Allocation>,
 }
-a
+
 pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
     let user_token_account = &ctx.accounts.user_token_account;
     let holding_account = &ctx.accounts.holding_account;
