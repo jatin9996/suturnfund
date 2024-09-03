@@ -14,17 +14,17 @@ pub struct FundManagement<'info> {
 
 pub fn ensure_solana_balance(ctx: Context<FundManagement>) -> ProgramResult {
     let total_fund_value = get_total_fund_value(&ctx.accounts.fund_account)?;
-    let solana_balance = ctx.accounts.solana_holdings_account.amount;
+    let solana_balance = ctx.accounts.fund_account.amount; // Changed to fund_account
 
     let required_solana_balance = total_fund_value / 2; // 50% of total fund value
 
     if solana_balance < required_solana_balance {
         let difference = required_solana_balance - solana_balance;
-        // Logic to buy or transfer Solana to the holdings account
+        // Logic to buy or transfer Solana to the fund account
         buy_or_transfer_solana(&ctx, difference)?;
     } else if solana_balance > required_solana_balance {
         let difference = solana_balance - required_solana_balance;
-        // Logic to reduce Solana holdings, possibly by selling Solana for other assets
+        // Logic to reduce Solana holdings in the fund account
         reduce_solana_holdings(&ctx, difference)?;
     }
 

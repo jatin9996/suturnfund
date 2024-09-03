@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, TokenAccount, Transfer};
+use solana_program::native_token::solana_mint;
 
 #[derive(Accounts)]
 pub struct ManageTransactionAccount<'info> {
@@ -12,22 +13,49 @@ pub struct ManageTransactionAccount<'info> {
     pub price_oracle: AccountInfo<'info>, // Account holding price data
 }
 
-pub fn manage_transaction_account(ctx: Context<ManageTransactionAccount>) -> ProgramResult {
+pub fn dynamic_transaction_account_management(ctx: Context<ManageTransactionAccount>) -> ProgramResult {
     let allocation = &ctx.accounts.allocation_pda;
     let fund_value = get_fund_value(&ctx.accounts.fund_account, &ctx.accounts.price_oracle)?;
     let transaction_balance = ctx.accounts.transaction_account.amount;
 
+    // Ensure the transaction account holds only Solana
+    if ctx.accounts.transaction_account.mint != solana_mint::id() {
+        msg!("Transaction account does not hold Solana.");
+        return Err(ProgramError::InvalidAccountData);
+    }
+
     let target_balance = fund_value * allocation.target_amount_percentage as u64 / 100;
+    let baseline_balance = fund_value * allocation.baseline_amount_percentage as u64 / 100;
+
+    // Adjust balances dynamically based on updated allocation
+    adjust_balances(&ctx, transaction_balance, target_balance, baseline_balance)?;
+
+    Ok(())
+}
+
+fn adjust_balances(ctx: &Context<ManageTransactionAccount>, current_balance: u64, target_balance: u64, baseline_balance: u64) -> ProgramResult {
+    if current_balance < baseline_balance {
+        let amount_needed = baseline_balance - current_balance;
+        // Logic to transfer funds to meet the baseline balance
+        transfer_funds(&ctx.accounts.fund_account, &ctx.accounts.transaction_account, amount_needed)?;
+    } else if current_balance > target_balance {
+        let excess_amount = current_balance - target_balance;
+        // Logic to transfer excess funds back to the fund account
+        transfer_funds(&ctx.accounts.transaction_account, &ctx.accounts.fund_account, excess_amount)?;
+    }
+    Ok(())
+}
+
+pub fn enforce_baseline_amount(ctx: Context<ManageTransactionAccount>) -> ProgramResult {
+    let allocation = &ctx.accounts.allocation_pda;
+    let fund_value = get_fund_value(&ctx.accounts.fund_account, &ctx.accounts.price_oracle)?;
+    let transaction_balance = ctx.accounts.transaction_account.amount;
+
     let baseline_balance = fund_value * allocation.baseline_amount_percentage as u64 / 100;
 
     if transaction_balance < baseline_balance {
         let amount_needed = baseline_balance - transaction_balance;
-        // Transfer Solana from fund account to transaction account
         transfer_solana(&ctx.accounts.fund_account, &ctx.accounts.transaction_account, amount_needed)?;
-    } else if transaction_balance > target_balance {
-        let excess_amount = transaction_balance - target_balance;
-        // Transfer Solana from transaction account to fund account
-        transfer_solana(&ctx.accounts.transaction_account, &ctx.accounts.fund_account, excess_amount)?;
     }
 
     Ok(())

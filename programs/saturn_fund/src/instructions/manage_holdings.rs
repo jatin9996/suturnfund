@@ -118,22 +118,16 @@ fn buy_tokens(ctx: &Context<ManageHoldings>, mint: &Pubkey, amount: u64) -> Prog
     Ok(())
 }
 
-fn find_orderbook_account(ctx: &Context<ManageHoldings>, mint: &Pubkey) -> Result<AccountInfo, ProgramError> {
+fn find_orderbook_account(ctx: &Context<ManageHoldings>, mint: &Pubkey) -> Result<Option<AccountInfo>, ProgramError> {
     // map of market data that includes orderbook accounts
-    // This example assumes you have a static mapping or a way to query this data
     let markets = get_markets_data(); // This function should fetch or have access to market data
 
-    let market = markets.iter()
-        .find(|market| &market.base_mint == mint || &market.quote_mint == mint)
-        .ok_or(ProgramError::AccountNotFound)?;
-
-    let orderbook_account_info = ctx.accounts
-        .token_accounts
-        .iter()
-        .find(|account| &account.key() == &market.orderbook)
-        .ok_or(ProgramError::AccountNotFound)?;
-
-    Ok(orderbook_account_info.clone())
+    if let Some(market) = markets.iter().find(|market| &market.base_mint == mint || &market.quote_mint == mint) {
+        if let Some(orderbook_account_info) = ctx.accounts.token_accounts.iter().find(|account| &account.key() == &market.orderbook) {
+            return Ok(Some(orderbook_account_info.clone()));
+        }
+    }
+    Ok(None) // Return None if no orderbook account is found
 }
 
 struct Market {
@@ -302,4 +296,20 @@ fn find_destination_token_account(ctx: &Context<ManageHoldings>, mint: &Pubkey) 
         .find(|account| &account.mint == mint)
         .ok_or(ProgramError::AccountNotFound)
         .map(|account| account.to_account_info())
+}
+
+pub fn distribute_holdings_evenly(ctx: Context<ManageHoldings>) -> ProgramResult {
+    let total_fund_value = get_total_fund_value(&ctx)?;
+    let target_value_per_holding = (total_fund_value / 2) / 25; // Assuming 25 different holdings for simplicity
+
+    for token_account in &ctx.accounts.token_accounts {
+        let current_value = get_market_value(&token_account)?;
+        if current_value < target_value_per_holding {
+            let amount_needed = target_value_per_holding - current_value;
+            // Function to buy or transfer tokens to reach the target value
+            buy_or_transfer_tokens(&ctx, &token_account.mint, amount_needed)?;
+        }
+    }
+
+    Ok(())
 }

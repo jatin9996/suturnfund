@@ -11,7 +11,7 @@ use anchor_spl::token::{self, TokenAccount, Transfer};
 pub fn get_current_market_price_from_raydium(
     oracle_account: &AccountInfo
 ) -> Result<u64, ProgramError> {
-    // Example: Fetch and decode the price data from the oracle account
+    //  Fetch and decode the price data from the oracle account
  
     let data = oracle_account.try_borrow_data()?;
     let price_data = decode_price_data(&data)?;
@@ -115,5 +115,18 @@ pub fn increase_liquidity_on_raydium(
     )?;
 
     msg!("Liquidity addition completed successfully.");
+    Ok(())
+}
+
+pub fn ensure_liquidity_representation(ctx: Context<IncreaseLiquidityOnRaydium>, target_percentage: u64) -> ProgramResult {
+    let total_fund_value = get_total_fund_value(&ctx)?;
+    let required_liquidity_value = total_fund_value * target_percentage / 100;
+
+    let current_liquidity_value = get_current_liquidity_value(&ctx)?;
+    if current_liquidity_value < required_liquidity_value {
+        let difference = required_liquidity_value - current_liquidity_value;
+        increase_liquidity_on_raydium(ctx, difference)?;
+    }
+
     Ok(())
 }

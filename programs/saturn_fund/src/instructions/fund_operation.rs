@@ -9,34 +9,29 @@ pub struct FundAccountOperations<'info> {
     pub token_program: Program<'info, token::Token>,
 }
 
-pub fn create_fund_account(ctx: Context<FundAccountOperations>) -> ProgramResult {
-    // Generate a PDA with a specific seed and the program's ID
-    let seeds = &[b"fund_account", &[ctx.accounts.fund_account.to_account_info().key.as_ref(), &[bump_seed]]];
-    let (fund_account_pda, _bump_seed) = Pubkey::find_program_address(seeds, ctx.program_id);
-
-    // Initialize the fund account with the PDA as the authority
+pub fn create_fund_account(ctx: Context<FundAccountOperations>, owner: Pubkey) -> ProgramResult {
     let fund_account = &mut ctx.accounts.fund_account;
-    fund_account.set_authority(fund_account_pda)?;
+    fund_account.set_authority(owner)?;
 
+    msg!("Fund account created with external owner.");
+    Ok(())
+}
+
+pub fn create_non_pda_fund_account(ctx: Context<FundAccountOperations>, owner: Pubkey) -> ProgramResult {
+    let fund_account = &mut ctx.accounts.fund_account;
+    fund_account.set_authority(owner)?;
+
+    msg!("Non-PDA Fund account created with external owner.");
     Ok(())
 }
 
 pub fn manage_liquidity(ctx: Context<FundAccountOperations>, params: LiquidityParams) -> ProgramResult {
-    // Assuming LiquidityParams includes a recipient and amount
-    let recipient = &ctx.accounts.recipient;
-    let sender = &ctx.accounts.fund_account;
-    let authority = &ctx.accounts.owner;
+    // Assuming LiquidityParams includes a field for liquidity_ratio
+    let fund_account = &mut ctx.accounts.fund_account;
+    // Hypothetical method to adjust liquidity ratio
+    fund_account.liquidity_ratio = params.liquidity_ratio;
 
-    // Transfer tokens from the fund account to the recipient
-    let cpi_accounts = Transfer {
-        from: sender.to_account_info(),
-        to: recipient.to_account_info(),
-        authority: authority.to_account_info(),
-    };
-    let cpi_program = ctx.accounts.token_program.to_account_info();
-    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-    token::transfer(cpi_ctx, params.amount)?;
-
+    msg!("Liquidity ratio adjusted to {}", params.liquidity_ratio);
     Ok(())
 }
 

@@ -13,7 +13,6 @@ pub struct BurnToken<'info> {
     #[account(mut)]
     pub fund_account: Account<'info, TokenAccount>,
     pub token_program: Program<'info, token::Token>,
-    pub allocation_pda: Account<'info, Allocation>,
 }
 
 pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
@@ -21,7 +20,6 @@ pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
     let holding_account = &ctx.accounts.holding_account;
     let fund_account = &ctx.accounts.fund_account;
     let token_program = &ctx.accounts.token_program;
-    let allocation_pda = &ctx.accounts.allocation_pda;
 
     // Step 1: Receive $STRN tokens from the user
     token::burn(
@@ -38,22 +36,18 @@ pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
     // Step 2: Calculate the equivalent amount of Solana
     let solana_equivalent = calculate_solana_equivalent(amount)?;
 
-    // Add a check against the baseline amount in the PDA
-    let baseline_amount = allocation_pda.baseline_amount_percentage as u64 * get_total_fund_value(&ctx.accounts.fund_account, market_price_per_token)? / 100;
-    if holding_account.amount < baseline_amount {
-        return Err(ProgramError::InsufficientFunds);
-    }
-
+    // Step 3: Check if the holding account has enough Solana
     if holding_account.amount >= solana_equivalent {
         // Step 4a: Transfer Solana to the user
         token::transfer(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 token_program.to_account_info(),
                 Transfer {
                     from: holding_account.to_account_info(),
                     to: user_token_account.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
+                    authority: ctx.accounts.program_authority.to_account_info().clone(),
                 },
+                &[&ctx.accounts.program_authority.to_account_info().key],
             ),
             solana_equivalent,
         )?;
@@ -67,42 +61,30 @@ pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
 
         // Transfer 50% from Solana
         token::transfer(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 token_program.to_account_info(),
                 Transfer {
                     from: fund_account.to_account_info(),
                     to: holding_account.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
+                    authority: ctx.accounts.program_authority.to_account_info().clone(),
                 },
+                &[&ctx.accounts.program_authority.to_account_info().key],
             ),
             half_required_amount,
         )?;
 
-        // Transfer the required amount to the user
+        // Transfer the remaining amount to the user
         token::transfer(
-            CpiContext::new(
+            CpiContext::new_with_signer(
                 token_program.to_account_info(),
                 Transfer {
                     from: holding_account.to_account_info(),
                     to: user_token_account.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
+                    authority: ctx.accounts.program_authority.to_account_info(),
                 },
+                &[&ctx.accounts.program_authority.to_account_info().key],
             ),
-            solana_equivalent,
-        )?;
-
-        // Compensate for transaction fees
-        let transaction_fee_compensation = calculate_transaction_fee();
-        token::transfer(
-            CpiContext::new(
-                token_program.to_account_info(),
-                Transfer {
-                    from: fund_account.to_account_info(),
-                    to: user_token_account.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
-                },
-            ),
-            transaction_fee_compensation,
+            holding_account.amount, // Transfer whatever is left in the holding account
         )?;
     }
 
@@ -123,75 +105,69 @@ pub fn handler(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
 
 // Helper function to calculate the equivalent amount of Solana
 fn calculate_solana_equivalent(amount: u64) -> Result<u64, ProgramError> {
-    // Implement the logic to calculate the Solana equivalent based on the fund's price
-    let fund_price_per_token = 20; // Example: price per token in cents
-    let solana_price = 5000; // Example: price of Solana in cents
+    // Assuming `FUND_PRICE_PER_UNIT` is the price of one unit of the fund in terms of Solana
+    const FUND_PRICE_PER_UNIT: u64 = 10; 
 
-    // Calculate the total value in cents
-    let total_value_in_cents = amount * fund_price_per_token;
-
-    // Convert the total value in cents to Solana
-    let solana_equivalent = total_value_in_cents / solana_price;
-
+    let solana_equivalent = amount * FUND_PRICE_PER_UNIT;
     Ok(solana_equivalent)
 }
 
 // Helper function to liquidate holding tokens
 fn liquidate_holding_tokens(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
-   
-    let swap_cpi_accounts = Swap {
-        from: ctx.accounts.holding_account.to_account_info(),
-        to: ctx.accounts.fund_account.to_account_info(),
-        authority: ctx.accounts.user.to_account_info(),
-    };
-    let swap_cpi_context = CpiContext::new(ctx.accounts.token_program.to_account_info(), swap_cpi_accounts);
-    token::swap(swap_cpi_context, amount)?;
+    // Assuming there is a function `swap_tokens_for_solana` that handles the swap
+    swap_tokens_for_solana(ctx, amount)?;
+
     Ok(())
 }
 
-// Helper function to calculate transaction fee compensation
-fn calculate_transaction_fee() -> u64 {
-    
-    let base_fee = 5; // Base fee in lamports
-    let congestion_level = get_network_congestion(); 
-    let transaction_size = get_transaction_size(); 
+// Mock-up of the swap function (you will need to implement this based on your specific requirements)
+fn swap_tokens_for_solana(ctx: Context<BurnToken>, amount: u64) -> ProgramResult {
+    // Define the DEX program ID
+    let dex_program_id = Pubkey::from_str("EnterDEXProgramIDHere").unwrap();
 
-    
-    let congestion_fee = congestion_level * 2;
-    let size_fee = transaction_size / 1024; 
+    // Define the market and the open orders accounts
+    let market = Pubkey::from_str("EnterMarketPubkeyHere").unwrap();
+    let open_orders = Pubkey::from_str("EnterOpenOrdersPubkeyHere").unwrap();
 
-    base_fee + congestion_fee + size_fee
-}
+    // Define the source and destination token accounts
+    let source_token_account = ctx.accounts.holding_account.to_account_info();
+    let destination_token_account = ctx.accounts.user_token_account.to_account_info();
 
-// Hypothetical helper function to fetch current network congestion level
-fn get_network_congestion() -> u64 {
-    
-    let current_hour = chrono::Local::now().hour(); // Using chrono crate to get current hour
+    // Define the user's wallet account, which will be the authority
+    let user_wallet = ctx.accounts.user.to_account_info();
 
-    match current_hour {
-        0..=6 => 1, // Low congestion during night hours
-        7..=10 | 17..=20 => 3, // High congestion during morning and evening rush hours
-        _ => 2, // Medium congestion during other hours
-    }
-}
+    // Create a CPI context for the DEX swap
+    let cpi_accounts = Swap {
+        market: market,
+        open_orders: open_orders,
+        source_token_account: source_token_account,
+        destination_token_account: destination_token_account,
+        user_wallet: user_wallet,
+    };
+    let cpi_program = CpiProgram::new(&dex_program_id, &cpi_accounts);
 
-// Hypothetical helper function to calculate the transaction size
-fn get_transaction_size() -> u64 {
-    
-    let base_size = 200; // Base size in bytes for a typical transaction
-    let dynamic_size = 50; // Additional bytes per operation involved in the transaction
+    // Assuming `swap` is a method provided by the DEX program
+    let swap_instruction = dex::instruction::swap(
+        &dex_program_id,
+        &market,
+        &open_orders,
+        &source_token_account.key(),
+        &destination_token_account.key(),
+        &user_wallet.key(),
+        amount,
+    )?;
 
-    // Example: Assume 3 operations per transaction
-    let operations_count = 3;
+    // Perform the CPI call to the DEX program
+    anchor_lang::solana_program::program::invoke(
+        &swap_instruction,
+        &[
+            market.to_account_info(),
+            open_orders.to_account_info(),
+            source_token_account,
+            destination_token_account,
+            user_wallet,
+        ],
+    )?;
 
-    base_size + (dynamic_size * operations_count)
-}
-
-// Helper function to get the total value of the fund
-fn get_total_fund_value(fund_account: &Account<TokenAccount>, market_price_per_token: u64) -> Result<u64, ProgramError> {
-    // Calculate the total value of the fund based on the market price per token
-    let total_value = fund_account.amount.checked_mul(market_price_per_token)
-        .ok_or(ProgramError::Overflow)?;
-
-    Ok(total_value)
+    Ok(())
 }
