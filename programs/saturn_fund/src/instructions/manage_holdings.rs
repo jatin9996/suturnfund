@@ -198,7 +198,7 @@ fn construct_buy_order_instruction(
     Ok(instruction)
 }
 
-fn sell_tokens(ctx: &Context<ManageHoldings>, mint: &Pubkey, amount: u64) -> ProgramResult {
+pub fn sell_tokens(ctx: &Context<ManageHoldings>, mint: &Pubkey, amount: u64) -> ProgramResult {
     // Assuming you have a DEX program and accounts set up for trading
     let dex_program_id = Pubkey::from_str("EnterYourDexProgramIdHere").unwrap();
     let orderbook_account = find_orderbook_account(ctx, mint)?;
